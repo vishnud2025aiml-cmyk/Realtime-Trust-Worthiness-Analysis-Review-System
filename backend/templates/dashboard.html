@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Review Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 font-sans">
+
+<header class="bg-blue-600 text-white p-6 flex justify-between items-center">
+<h1 class="text-3xl font-bold">Review Dashboard</h1>
+<div class="flex items-center space-x-4"><p>Admin</p><img src="https://via.placeholder.com/40" class="rounded-full"></div>
+</header>
+
+<main class="p-6 space-y-6">
+<div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+<div class="bg-white p-6 rounded shadow"><p class="text-gray-500">Genuine Reviews</p><h2 id="genuineKPI" class="text-2xl font-bold text-green-600">0%</h2></div>
+<div class="bg-white p-6 rounded shadow"><p class="text-gray-500">Fake Reviews</p><h2 id="fakeKPI" class="text-2xl font-bold text-red-600">0%</h2></div>
+<div class="bg-white p-6 rounded shadow"><p class="text-gray-500">Total Reviews</p><h2 id="totalKPI" class="text-2xl font-bold text-blue-600">0</h2></div>
+</div>
+
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+<div class="bg-white p-6 rounded shadow"><canvas id="barChart"></canvas></div>
+<div class="bg-white p-6 rounded shadow"><canvas id="lineChart"></canvas></div>
+<div class="bg-white p-6 rounded shadow"><canvas id="scatterChart"></canvas></div>
+<div class="bg-white p-6 rounded shadow"><canvas id="histogramChart"></canvas></div>
+</div>
+</main>
+
+<script>
+let statsHistory=[];
+
+async function fetchStats(){
+    const res=await fetch('/dashboard_data');
+    const data=await res.json();
+    statsHistory.push(data);
+    return data;
+}
+
+// Bar Chart
+const barChart=new Chart(document.getElementById('barChart'),{
+type:'bar',
+data:{labels:['Genuine','Fake'],datasets:[{label:'Reviews',data:[1,1],backgroundColor:['#16a34a','#dc2626'],borderRadius:10}]},
+options:{responsive:true,plugins:{legend:{display:false}}}
+});
+
+// Line Chart
+const lineChart=new Chart(document.getElementById('lineChart'),{
+type:'line',
+data:{labels:[],datasets:[
+{label:'Genuine',data:[],borderColor:'#16a34a',fill:false,tension:0.3},
+{label:'Fake',data:[],borderColor:'#dc2626',fill:false,tension:0.3}
+]},
+options:{responsive:true,scales:{y:{beginAtZero:true}}}
+});
+
+// Scatter Chart
+const scatterChart=new Chart(document.getElementById('scatterChart'),{
+type:'scatter',
+data:{datasets:[
+{label:'Genuine',data:[],backgroundColor:'#16a34a'},
+{label:'Fake',data:[],backgroundColor:'#dc2626'}
+]},
+options:{responsive:true,scales:{x:{beginAtZero:true},y:{beginAtZero:true}}}
+});
+
+// Histogram
+const histogramChart=new Chart(document.getElementById('histogramChart'),{
+type:'bar',
+data:{labels:[],datasets:[
+{label:'Genuine',data:[],backgroundColor:'#16a34a'},
+{label:'Fake',data:[],backgroundColor:'#dc2626'}
+]},
+options:{responsive:true,scales:{y:{beginAtZero:true}}}
+});
+
+async function updateCharts(){
+    const data=await fetchStats();
+    const step=statsHistory.length;
+
+    // KPIs
+    // ----------------- Fix KPI percentages -----------------
+    const totalReviewsForKPI = data.Genuine + data.Fake; // sum of weighted values
+    const genuinePercent = Math.min(((data.Genuine / totalReviewsForKPI) * 100).toFixed(1), 100);
+    const fakePercent = Math.min(((data.Fake / totalReviewsForKPI) * 100).toFixed(1), 100);
+
+    document.getElementById('totalKPI').innerText = data.TotalReviews || 0;
+    document.getElementById('genuineKPI').innerText = genuinePercent + "%";
+    document.getElementById('fakeKPI').innerText = fakePercent + "%";
+    // Bar
+    barChart.data.datasets[0].data=[data.Genuine,data.Fake];
+    barChart.update();
+
+    // Line
+    lineChart.data.labels.push(step);
+    lineChart.data.datasets[0].data.push(data.Genuine);
+    lineChart.data.datasets[1].data.push(data.Fake);
+    lineChart.update();
+
+    // Scatter
+    scatterChart.data.datasets[0].data.push({x:step,y:data.Genuine});
+    scatterChart.data.datasets[1].data.push({x:step,y:data.Fake});
+    scatterChart.update();
+
+    // Histogram
+    histogramChart.data.labels.push(step);
+    histogramChart.data.datasets[0].data.push(data.Genuine);
+    histogramChart.data.datasets[1].data.push(data.Fake);
+    histogramChart.update();
+}
+
+updateCharts();
+setInterval(updateCharts,2000);
+</script>
+
+</body>
+</html>

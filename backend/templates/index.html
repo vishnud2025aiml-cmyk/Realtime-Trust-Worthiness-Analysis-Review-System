@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Review Trust Analysis</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+    </style>
+</head>
+<body class="bg-gradient-to-r from-blue-50 via-white to-blue-50 min-h-screen flex flex-col">
+
+<!-- Header -->
+<header class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white shadow-lg p-6">
+    <h1 class="text-3xl md:text-4xl font-bold text-center drop-shadow-lg">Realtime Trustworthiness Checker</h1>
+    <p class="text-center mt-2 text-blue-200">Quickly analyze if a review is genuine or fake</p>
+</header>
+
+<!-- Main Section -->
+<main class="flex-grow flex flex-col md:flex-row items-center justify-center px-4 mt-10 gap-10">
+
+    <!-- Left Decorative Panel -->
+    <div class="hidden md:flex flex-col justify-center items-center bg-gradient-to-b from-indigo-100 via-blue-50 to-white rounded-2xl shadow-xl p-10 w-full max-w-md text-center">
+    <h2 class="text-2xl font-bold mb-4 text-indigo-700">Why Trust Analysis Matters?</h2>
+    <p class="text-gray-700 mb-6">Fake reviews mislead buyers. Our AI-powered system instantly checks review authenticity, helping you make informed decisions.</p>
+    <ul class="text-left space-y-2 text-gray-600">
+        <li>✅ Spot genuine reviews</li>
+        <li>❌ Detect fake reviews</li>
+        <li>📊 Visualize review trends in dashboard</li>
+    </ul>
+    <img src="{{ url_for('static', filename='images/Trustworthiness_analysis_in_action.png') }}" 
+     alt="AI Illustration" 
+     class="mt-6 w-32 h-32 opacity-80">
+</div>
+
+    <!-- Right Review Form Card -->
+    <div class="bg-white shadow-2xl rounded-xl p-8 w-full max-w-lg transform transition duration-500 hover:scale-105">
+        <h2 class="text-2xl font-semibold mb-6 text-gray-700 text-center">Enter Your Review</h2>
+        <form id="reviewForm" class="space-y-4">
+            <textarea 
+                id="review" 
+                rows="6" 
+                class="w-full p-4 border border-gray-300 rounded-lg focus:outline-none focus:ring-4 focus:ring-blue-300 transition" 
+                placeholder="Type your review here..."
+            ></textarea>
+            <button 
+                type="submit" 
+                class="w-full py-3 px-6 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-indigo-600 hover:to-blue-600 text-white font-semibold rounded-lg shadow-lg transition transform hover:-translate-y-1"
+            >
+                Analyze Review
+            </button>
+        </form>
+        <h3 id="result" class="mt-6 text-center text-lg font-medium text-gray-800"></h3>
+    </div>
+
+</main>
+
+<!-- Dashboard Link -->
+<div class="text-center mt-8">
+    <a href="/dashboard" class="text-blue-600 hover:text-indigo-600 hover:underline font-semibold transition">
+        View Detailed Dashboard &rarr;
+    </a>
+</div>
+
+<!-- Footer -->
+<footer class="bg-gray-100 text-gray-500 text-center py-6 mt-10">
+    &copy; 2026 Review Trust Analysis. All rights reserved.
+</footer>
+
+<!-- Script -->
+<script>
+const form = document.getElementById("reviewForm");
+const result = document.getElementById("result");
+
+form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const review = document.getElementById("review").value.trim();
+
+    if(!review){
+        result.innerText = "Please enter a review!";
+        result.className = "mt-4 text-center text-lg font-medium text-red-600";
+        return;
+    }
+
+    try {
+        const response = await fetch("/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/x-www-form-urlencoded" },
+            body: `review=${encodeURIComponent(review)}`
+        });
+
+        const data = await response.json();
+
+        if(data.status === "success"){
+            result.innerText = `Prediction: ${data.prediction}`;
+            result.className = data.prediction === "Genuine"
+                ? "mt-4 text-center text-lg font-medium text-green-600"
+                : "mt-4 text-center text-lg font-medium text-red-600";
+        } else {
+            result.innerText = `Error: ${data.message}`;
+            result.className = "mt-4 text-center text-lg font-medium text-red-600";
+        }
+
+    } catch (err) {
+        result.innerText = "Server error! Check backend.";
+        result.className = "mt-4 text-center text-lg font-medium text-red-600";
+        console.error(err);
+    }
+
+    document.getElementById("review").value = "";
+});
+</script>
+
+</body>
+</html>
