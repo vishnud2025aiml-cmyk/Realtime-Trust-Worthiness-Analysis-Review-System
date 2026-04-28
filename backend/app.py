@@ -11,36 +11,50 @@ app = Flask(__name__, template_folder="templates")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-MODEL_PATH = os.path.join(BASE_DIR, "model.pkl")
-VECT_PATH = os.path.join(BASE_DIR, "vectorizer.pkl")
+model = pickle.load(open(os.path.join(BASE_DIR,"model.pkl"),"rb"))
+vectorizer = pickle.load(open(os.path.join(BASE_DIR,"vectorizer.pkl"),"rb"))
+
 STATS_PATH = os.path.join(BASE_DIR, "stats.pkl")
-
-with open(MODEL_PATH, "rb") as f:
-    model = pickle.load(f)
-
-with open(VECT_PATH, "rb") as f:
-    vectorizer = pickle.load(f)
 
 stop_words = set(stopwords.words('english'))
 
+# ---------------- CLEAN TEXT ----------------
 def clean_text(text):
     text = str(text).lower()
     text = re.sub(r'[^a-zA-Z]', ' ', text)
     words = [w for w in text.split() if w not in stop_words]
     return " ".join(words)
 
+# ---------------- LOAD STATS ----------------
 def load_stats():
     if os.path.exists(STATS_PATH):
-        with open(STATS_PATH, "rb") as f:
-            stats = pickle.load(f)
+        stats = pickle.load(open(STATS_PATH,"rb"))
     else:
-        stats = {"Genuine": 0, "Fake": 0, "TotalReviews": 0}
+        stats = {}
+
+    stats.setdefault("Genuine", 0)
+    stats.setdefault("Fake", 0)
+    stats.setdefault("TotalReviews", 0)
+    stats.setdefault("history", [])
+
     return stats
 
+# ---------------- SAVE STATS ----------------
 def save_stats(stats):
-    with open(STATS_PATH, "wb") as f:
-        pickle.dump(stats, f)
+    pickle.dump(stats, open(STATS_PATH,"wb"))
 
+# ---------------- RULE BOOST ----------------
+def rule_based_fake(review):
+    review = review.lower()
+    if "!!!" in review:
+        return True
+    if "buy now" in review:
+        return True
+    if "100%" in review:
+        return True
+    return False
+
+# ---------------- ROUTES ----------------
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -49,45 +63,64 @@ def index():
 def dashboard():
     return render_template("dashboard.html")
 
+# ---------------- ANALYZE ----------------
 @app.route("/analyze", methods=["POST"])
 def analyze():
 
-    review = request.form.get("review", "")
+    review = request.form.get("review","")
 
     cleaned = clean_text(review)
     X = vectorizer.transform([cleaned])
 
-    pred = model.predict(X)[0]
+    prob = model.predict_proba(X)[0]
+    fake_prob = prob[0]
+    genuine_prob = prob[1]
 
-    # REAL CONFIDENCE FIX
-    if hasattr(model, "predict_proba"):
-        prob = model.predict_proba(X)[0]
-        confidence = round(max(prob) * 100, 2)
+    # prediction
+    if rule_based_fake(review):
+        prediction = "Fake"
+        confidence = 90
     else:
-        confidence = 80
+        if fake_prob > genuine_prob:
+            prediction = "Fake"
+            confidence = round(fake_prob * 100, 2)
+        else:
+            prediction = "Genuine"
+            confidence = round(genuine_prob * 100, 2)
 
     stats = load_stats()
 
-    if pred == 1:
-        label = "Genuine"
-        stats["Genuine"] += 1
-    else:
-        label = "Fake"
+    # ✅ FIX: SIMPLE COUNT (NO DECIMAL ADD)
+    if prediction == "Fake":
         stats["Fake"] += 1
+    else:
+        stats["Genuine"] += 1
 
     stats["TotalReviews"] += 1
+
+    # ✅ FIX: STORE EACH REVIEW SEPARATELY
+    stats["history"].append({
+        "type": prediction,     # Fake or Genuine
+        "value": confidence     # 0–100
+    })
+
+    # keep only last 20
+    if len(stats["history"]) > 20:
+        stats["history"] = stats["history"][-20:]
+
     save_stats(stats)
 
     return jsonify({
-        "prediction": label,
+        "prediction": prediction,
         "confidence": confidence,
-        "text": review,
         "stats": stats
     })
 
+# ---------------- DASHBOARD DATA ----------------
 @app.route("/dashboard_data")
 def dashboard_data():
     return jsonify(load_stats())
 
+# ---------------- RUN ----------------
 if __name__ == "__main__":
     app.run(debug=True)

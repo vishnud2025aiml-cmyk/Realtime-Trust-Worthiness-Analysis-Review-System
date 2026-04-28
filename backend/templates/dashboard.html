@@ -84,48 +84,129 @@ canvas {
 
 <script>
 
-let chart1, chart2;
+let chart1 = null;
+let chart2 = null;
 
-async function loadDashboard(){
+function initCharts(){
 
-  const res = await fetch("/dashboard_data");
-  const stats = await res.json();
+  const ctx1 = document.getElementById("chart1").getContext("2d");
+  const ctx2 = document.getElementById("chart2").getContext("2d");
 
-  document.getElementById("total").innerText = stats.TotalReviews || 0;
-  document.getElementById("fake").innerText = stats.Fake || 0;
-  document.getElementById("genuine").innerText = stats.Genuine || 0;
-
-  if(chart1) chart1.destroy();
-  if(chart2) chart2.destroy();
-
-  chart1 = new Chart(document.getElementById("chart1"), {
+  // LINE CHART
+  chart1 = new Chart(ctx1, {
     type: "line",
     data: {
-      labels: ["Fake", "Genuine"],
-      datasets: [{
-        data: [stats.Fake || 0, stats.Genuine || 0],
-        borderColor: "#6366f1",
-        backgroundColor: "rgba(99,102,241,0.2)",
-        fill: true,
-        tension: 0.4
-      }]
+      labels: [],
+      datasets: [
+        {
+          label: "Fake %",
+          data: [],
+          borderColor: "red",
+          tension: 0.4
+        },
+        {
+          label: "Genuine %",
+          data: [],
+          borderColor: "green",
+          tension: 0.4
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      scales: {
+        y: {
+          beginAtZero: true,
+          max: 100
+        }
+      }
     }
   });
 
-  chart2 = new Chart(document.getElementById("chart2"), {
+  // BAR CHART (DISTRIBUTION)
+  chart2 = new Chart(ctx2, {
     type: "bar",
     data: {
       labels: ["Fake", "Genuine"],
       datasets: [{
-        data: [stats.Fake || 0, stats.Genuine || 0],
-        backgroundColor: ["red","green"]
+        label: "Total Count",
+        data: [0, 0],
+        backgroundColor: ["#ef4444", "#22c55e"]
       }]
+    },
+    options: {
+      responsive: true,
+      animation: false,
+      scales: {
+        y: {
+          beginAtZero: true,
+          ticks: {
+            precision: 0,
+            stepSize: 1   // important for small values
+          }
+        }
+      }
     }
   });
 }
 
+async function loadDashboard(){
+
+  try {
+    const res = await fetch("/dashboard_data");
+    const stats = await res.json();
+
+    // ✅ FIX: ensure integers (dynamic, not fixed)
+    let fake = Math.floor(Number(stats.Fake || 0));
+    let genuine = Math.floor(Number(stats.Genuine || 0));
+    let history = stats.history || [];
+
+    console.log("DATA:", fake, genuine);
+
+    // TEXT UPDATE
+    document.getElementById("total").innerText = stats.TotalReviews || 0;
+    document.getElementById("fake").innerText = fake;
+    document.getElementById("genuine").innerText = genuine;
+
+    // PROCESS HISTORY
+    let labels = [];
+    let fakeData = [];
+    let genuineData = [];
+
+    history.forEach((h, i) => {
+      labels.push("R" + (i+1));
+
+      if(h.type === "Fake"){
+        fakeData.push(h.value);
+        genuineData.push(0);
+      } else {
+        fakeData.push(0);
+        genuineData.push(h.value);
+      }
+    });
+
+    // UPDATE LINE CHART
+    chart1.data.labels = labels;
+    chart1.data.datasets[0].data = fakeData;
+    chart1.data.datasets[1].data = genuineData;
+    chart1.update('none');
+
+    // ✅ UPDATE BAR CHART (WORKING)
+    chart2.data.datasets[0].data = [fake, genuine];
+    chart2.update('none');
+
+  } catch (err) {
+    console.error("Dashboard Error:", err);
+  }
+}
+
+// INIT
+initCharts();
 loadDashboard();
-setInterval(loadDashboard, 3000);
+
+// AUTO REFRESH (dynamic)
+setInterval(loadDashboard, 2000);
 
 </script>
 

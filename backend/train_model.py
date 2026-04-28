@@ -3,6 +3,7 @@ import re
 import pickle
 import os
 import nltk
+
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split
 from sklearn.naive_bayes import MultinomialNB
@@ -13,7 +14,7 @@ nltk.download('stopwords')
 dataset_path = "../dataset"
 all_data = []
 
-# ----------------------------- Process Dataset -----------------------------
+# ---------------- PROCESS DATASET ----------------
 def process_dataset(df, filename):
     df.columns = [col.lower() for col in df.columns]
 
@@ -23,43 +24,23 @@ def process_dataset(df, filename):
         df['star_rating'] = pd.to_numeric(df['star_rating'], errors='coerce')
         df = df.dropna()
         df['label'] = df['star_rating'].apply(lambda x: 1 if x >= 3 else 0)
-        df.columns = ['text', 'rating', 'label']
+        df = df.rename(columns={'review_body': 'text'})
         return df[['text', 'label']]
 
-    # Fake dataset
+    # text_ dataset
     if 'text_' in df.columns and 'label' in df.columns:
         df = df[['text_', 'label']].dropna()
-        df.columns = ['text', 'label']
-        return df
+        df = df.rename(columns={'text_': 'text'})
+        return df[['text', 'label']]
 
-    # General detection
-    text_cols = ['reviewtext', 'review', 'text', 'content', 'summary']
-    rating_cols = ['rating', 'overall', 'score', 'stars']
-    label_cols = ['label', 'sentiment', 'fake']
-
-    text_col = rating_col = label_col = None
-    for col in df.columns:
-        if col in text_cols: text_col = col
-        if col in rating_cols: rating_col = col
-        if col in label_cols: label_col = col
-
-    if text_col and rating_col:
-        df = df[[text_col, rating_col]].dropna()
-        df[rating_col] = pd.to_numeric(df[rating_col], errors='coerce')
-        df = df.dropna()
-        df['label'] = df[rating_col].apply(lambda x: 1 if x >= 3 else 0)
-        df = df[[text_col, 'label']]
-        df.columns = ['text', 'label']
-        return df
-
-    if text_col and label_col:
-        df = df[[text_col, label_col]].dropna()
-        df.columns = ['text', 'label']
-        return df
+    # general dataset
+    if 'text' in df.columns and 'label' in df.columns:
+        return df[['text', 'label']].dropna()
 
     return None
 
-# ----------------------------- Load All CSVs -----------------------------
+
+# ---------------- LOAD DATA ----------------
 for file in os.listdir(dataset_path):
     if file.endswith(".csv"):
         try:
@@ -67,53 +48,102 @@ for file in os.listdir(dataset_path):
             processed = process_dataset(df, file)
             if processed is not None and len(processed) > 0:
                 all_data.append(processed)
-        except:
-            continue
+        except Exception as e:
+            print("Skipping:", file, e)
 
-# ----------------------------- Combine -----------------------------
 if len(all_data) == 0:
-    raise Exception("No valid datasets found!")
+    raise Exception("❌ No valid dataset found!")
+
 df = pd.concat(all_data, ignore_index=True)
 
-# ----------------------------- Final Label Fix -----------------------------
+# ---------------- CLEAN LABELS ----------------
 df['label'] = df['label'].astype(str).str.lower().str.strip()
-df['label'] = df['label'].map({
-    '1':1,'0':0,'real':1,'fake':0,'genuine':1,'positive':1,'negative':0
+
+df['label'] = df['label'].replace({
+    'real': 1,
+    'genuine': 1,
+    'positive': 1,
+    'fake': 0,
+    'spam': 0,
+    'negative': 0,
+    '1': 1,
+    '0': 0,
+    'true': 1,
+    'false': 0
 })
+
+df['label'] = pd.to_numeric(df['label'], errors='coerce')
 df = df.dropna(subset=['label'])
 df['label'] = df['label'].astype(int)
 
-# ----------------------------- Text Cleaning -----------------------------
+# ---------------- CHECK DATA ----------------
+print("\nLabel distribution:")
+print(df['label'].value_counts())
+
+if df['label'].nunique() < 2:
+    raise Exception("❌ Dataset must contain BOTH Fake and Genuine reviews!")
+
+# ---------------- FIX: SAFE BALANCING ----------------
+fake_count = len(df[df['label'] == 0])
+real_count = len(df[df['label'] == 1])
+
+min_count = int(min(fake_count, real_count))
+
+# avoid crash if dataset is too small
+if min_count == 0:
+    raise Exception("❌ One class is empty after cleaning!")
+
+df_fake = df[df['label'] == 0].sample(n=min_count, random_state=42)
+df_real = df[df['label'] == 1].sample(n=min_count, random_state=42)
+
+df = pd.concat([df_fake, df_real]).sample(frac=1, random_state=42)
+
+# ---------------- CLEAN TEXT ----------------
 stop_words = set(stopwords.words('english'))
+
 def clean_text(text):
     text = str(text).lower()
     text = re.sub(r'[^a-zA-Z]', ' ', text)
-    words = [w for w in text.split() if w not in stop_words]
-    return " ".join(words)
+    return " ".join([w for w in text.split() if w not in stop_words])
 
 df['cleaned'] = df['text'].apply(clean_text)
 
-# ----------------------------- TF-IDF -----------------------------
-vectorizer = TfidfVectorizer(max_features=5000)
+# ---------------- TF-IDF ----------------
+vectorizer = TfidfVectorizer(
+    max_features=6000,
+    ngram_range=(1, 2)
+)
+
 X = vectorizer.fit_transform(df['cleaned'])
 y = df['label']
 
-# ----------------------------- Train Model -----------------------------
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+# ---------------- TRAIN TEST SPLIT ----------------
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y,
+    test_size=0.2,
+    stratify=y,
+    random_state=42
+)
+
+# ---------------- MODEL ----------------
 model = MultinomialNB()
 model.fit(X_train, y_train)
+
 accuracy = model.score(X_test, y_test)
-print("Accuracy:", accuracy)
+print("\n✅ Accuracy:", round(accuracy * 100, 2), "%")
 
-# ----------------------------- Save -----------------------------
-pickle.dump(model, open("model.pkl","wb"))
-pickle.dump(vectorizer, open("vectorizer.pkl","wb"))
+# ---------------- SAVE MODEL ----------------
+pickle.dump(model, open("model.pkl", "wb"))
+pickle.dump(vectorizer, open("vectorizer.pkl", "wb"))
 
-# ----------------------------- Stats -----------------------------
-df['label_name'] = df['label'].map({1:"Genuine",0:"Fake"})
-stats = df['label_name'].value_counts().to_dict()
-stats.setdefault("Genuine",1)
-stats.setdefault("Fake",1)
-stats["TotalReviews"] = 0
-pickle.dump(stats, open("stats.pkl","wb"))
-print("Model + stats saved!")
+# ---------------- STATS ----------------
+stats = {
+    "Genuine": int((df['label'] == 1).sum()),
+    "Fake": int((df['label'] == 0).sum()),
+    "TotalReviews": len(df),
+    "history": []
+}
+
+pickle.dump(stats, open("stats.pkl", "wb"))
+
+print("\n✅ Model + Stats saved successfully!")
